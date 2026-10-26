@@ -2,6 +2,9 @@
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
+const withTimeout = <T,>(p: Promise<T>) =>
+  Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("No response from the server. Check your connection and try again.")), 20000))]);
+
 export default function Login() {
   const [mode, setMode] = useState<"in" | "up">("in");
   const [email, setEmail] = useState("");
@@ -13,14 +16,23 @@ export default function Login() {
 
   async function submit() {
     setLoading(true); setMsg("");
-    const supabase = createSupabaseBrowserClient();
-    const { error } = mode === "in"
-      ? await supabase.auth.signInWithPassword({ email, password })
-      : await supabase.auth.signUp({ email, password });
-    setLoading(false);
-    if (error) return setMsg(error.message);
-    if (mode === "up") return setMsg("Account created. Check your email to confirm, then sign in.");
-    window.location.href = "/dashboard";
+    try {
+      const supabase = createSupabaseBrowserClient();
+      if (mode === "in") {
+        const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }));
+        if (error) throw error;
+        window.location.href = "/dashboard";
+      } else {
+        const { data, error } = await withTimeout(supabase.auth.signUp({ email, password }));
+        if (error) throw error;
+        if (data.session) { window.location.href = "/dashboard"; return; }
+        setMsg("Account created. Check your email to confirm, then sign in.");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return <main className="dashboardShell">
