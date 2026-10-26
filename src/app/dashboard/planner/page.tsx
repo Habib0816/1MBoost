@@ -8,7 +8,7 @@ export default function Planner() {
   const [f, setF] = useState({ platform: "YouTube", title: "", notes: "", when: "" });
   const [err, setErr] = useState("");
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const [a, setA] = useState({ platform: "Facebook", topic: "", perDay: "3", days: "30", start: tomorrow });
+  const [a, setA] = useState({ platform: "Facebook", topic: "", perDay: "3", days: "30", start: tomorrow, lang: "ha" });
   const [aMsg, setAMsg] = useState("");
   const [needBoost, setNeedBoost] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -17,7 +17,7 @@ export default function Planner() {
 
   async function autoPlan() {
     setBusy(true); setAMsg(""); setNeedBoost(false);
-    const r = await fetch("/api/planner/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform: a.platform, topic: a.topic, posts_per_day: Number(a.perDay), days: Number(a.days), start_date: a.start }) });
+    const r = await fetch("/api/planner/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platform: a.platform, topic: a.topic, posts_per_day: Number(a.perDay), days: Number(a.days), start_date: a.start, lang: a.lang }) });
     const d = await r.json(); setBusy(false);
     if (!r.ok) { setNeedBoost(!!d.needBoost); return setAMsg(d.error || "Could not create the plan."); }
     setAMsg(`Done. ${d.created} posts added to your calendar below.`); load();
@@ -41,6 +41,7 @@ export default function Planner() {
       <p className="eyebrow">AUTO PLAN</p><h2>Plan my posts for me</h2>
       <p className="fineprint">Free: up to 3 posts a day for 30 days. Need more posts per day, or a new month after the free month ends? Boost.</p>
       <label>What do you post about?<input className="input" value={a.topic} onChange={e => setA({ ...a, topic: e.target.value })} placeholder="Example: learning English" /></label>
+      <label>Post language<select value={a.lang} onChange={e => setA({ ...a, lang: e.target.value })}>{[["ha", "Hausa"], ["en", "English"], ["ar", "العربية (Arabic)"], ["fr", "Français (French)"], ["sw", "Kiswahili"], ["yo", "Yorùbá"], ["ig", "Igbo"], ["zh", "中文 (Chinese)"]].map(([v, n]) => <option key={v} value={v}>{n}</option>)}</select></label>
       <div className="formRow"><label>Platform<select value={a.platform} onChange={e => setA({ ...a, platform: e.target.value })}>{["Facebook", "Instagram", "YouTube", "X", "TikTok"].map(p => <option key={p}>{p}</option>)}</select></label>
         <label>Start date<input type="date" className="input" value={a.start} onChange={e => setA({ ...a, start: e.target.value })} /></label></div>
       {(() => { const l = links.find(x => x.platform === a.platform); return l
