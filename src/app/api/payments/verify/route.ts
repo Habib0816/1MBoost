@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -12,21 +13,33 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(parsed.data)}`, {
-      headers: { Authorization: `Bearer ${secret}` }, cache: "no-store"
+      headers: { Authorization: `Bearer ${secret}` }, cache: "no-store",
     });
     const payload = await response.json();
     if (!response.ok || !payload.status) return NextResponse.json({ verified: false, error: "Could not verify this transaction." }, { status: 502 });
     const data = payload.data;
     const verified = data.status === "success" && data.currency === "NGN";
-    // TODO production: confirm amount/reference against a pending DB order, then update subscription idempotently.
-    return NextResponse.json({
-      verified,
-      status: data.status,
-      currency: data.currency,
-      amount_kobo: data.amount,
-      reference: data.reference,
-      note: "This endpoint reports Paystack's verification result only. It does not activate a subscription until database order checks and webhook handling are implemented."
-    });
+
+    // Activate the plan only after Paystack confirms the payment AND it matches our own pending order.
+    // Idempotent: the expiry date is based on the first verification time, so repeat calls change nothing.
+    let activated = false;
+    if (verified) {
+      const db = createSupabaseServerClient();
+      const { data: order } = await db.from("payment_orders").select("*").eq("paystack_reference", data.reference).maybeSingle();
+      if (order && Number(order.amount_kobo) === Number(data.amount) && order.currency === data.currency) {
+        const base = order.verified_at ? new Date(order.verified_at).getTime() : Date.now();
+        if (order.status !== "success") {
+          await db.from("payment_orders").update({ status: "success", verified_at: new Date(base).toISOString() }).eq("id", order.id).eq("status", "pending");
+        }
+        if (order.user_id) {
+          const { data: rows } = await db.from("profiles")
+            .update({ plan: order.plan, plan_expires_at: new Date(base + 30 * 86400000).toISOString() })
+            .eq("id", order.user_id).select("id");
+          activated = !!rows && rows.length > 0;
+        }
+      }
+    }
+    return NextResponse.json({ verified, activated, status: data.status, reference: data.reference });
   } catch {
     return NextResponse.json({ verified: false, error: "Could not reach Paystack." }, { status: 502 });
   }
