@@ -1,9 +1,11 @@
- "use client";
+"use client";
 import { useEffect, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type Item = { id: string; platform: string; title: string; notes: string | null; scheduled_for: string; media_url: string | null; media_type: string | null };
 const ACCEPT = "image/*,video/mp4,video/quicktime,video/webm";
+const HOME: Record<string, string> = { Facebook: "https://www.facebook.com/", Instagram: "https://www.instagram.com/", YouTube: "https://studio.youtube.com/", X: "https://x.com/compose/post", TikTok: "https://www.tiktok.com/upload" };
+const textOf = (i: Item) => i.title + (i.notes && !i.notes.startsWith("Auto") ? "\n\n" + i.notes : "");
 
 export default function Planner() {
   const [items, setItems] = useState<Item[]>([]);
@@ -11,6 +13,7 @@ export default function Planner() {
   const [file, setFile] = useState<File | null>(null);
   const [fileKey, setFileKey] = useState(0);
   const [err, setErr] = useState("");
+  const [toast, setToast] = useState("");
   const [up, setUp] = useState("");
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   const [a, setA] = useState({ platform: "Facebook", topic: "", perDay: "3", days: "30", start: tomorrow, lang: "ha" });
@@ -19,6 +22,17 @@ export default function Planner() {
   const [busy, setBusy] = useState(false);
   const [links, setLinks] = useState<{ platform: string; url: string }[]>([]);
   useEffect(() => { fetch("/api/accounts").then(r => r.ok ? r.json() : null).then(d => d && setLinks(d.items)); }, []);
+
+  async function copy(i: Item) {
+    try { await navigator.clipboard.writeText(textOf(i)); setToast("Copied. Paste it in your post."); }
+    catch { setToast("Could not copy. Press and hold the text to copy it."); }
+  }
+  async function postNow(i: Item) {
+    if (i.platform === "X") { window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(textOf(i).slice(0, 270))}`, "_blank", "noopener"); return; }
+    await copy(i);
+    const link = links.find(l => l.platform === i.platform)?.url;
+    window.open(link || HOME[i.platform], "_blank", "noopener");
+  }
 
   async function upload(file: File): Promise<{ url: string; type: "image" | "video" } | null> {
     const isVideo = file.type.startsWith("video/");
@@ -95,6 +109,7 @@ export default function Planner() {
       <button className="button primary full" disabled={up === "new" || f.title.trim().length < 3 || !f.when} onClick={add}>{up === "new" ? "Please wait…" : "Add to calendar"}</button>
     </section>
     {err && <p className="error">{err}</p>}
+    {toast && <p className="fineprint">{toast}</p>}
     <div className="draftList">{items.length === 0 && <p className="fineprint">No planned posts yet.</p>}
       {items.map(i => <div className="draftItem" key={i.id}>
         <b>{i.platform}</b> · {new Date(i.scheduled_for).toLocaleString()}<br />{i.title}{i.notes ? `\n${i.notes}` : ""}
@@ -102,6 +117,8 @@ export default function Planner() {
           ? <video src={i.media_url} controls playsInline preload="metadata" style={{ width: "100%", borderRadius: 12, marginTop: 8 }} />
           : <img src={i.media_url} alt="" style={{ width: "100%", borderRadius: 12, marginTop: 8 }} />)}
         <br />
+        <a href="#" className="back" onClick={e => { e.preventDefault(); copy(i); }}>Copy</a>{" · "}
+        <a href="#" className="back" onClick={e => { e.preventDefault(); postNow(i); }}>Post now</a>{" · "}
         {i.media_url && <><a className="back" href={i.media_url} target="_blank" rel="noopener noreferrer">Open / save file</a> · </>}
         <label className="back" style={{ cursor: "pointer" }}>{up === i.id ? "Uploading…" : i.media_url ? "Replace file" : "Attach photo/video"}
           <input type="file" accept={ACCEPT} hidden disabled={!!up} onChange={e => { const fl = e.target.files?.[0]; if (fl) attach(i.id, fl); e.target.value = ""; }} /></label>
